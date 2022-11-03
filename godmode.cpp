@@ -57,12 +57,21 @@ int main()
 
         else if (strcmp(command_buf, "token.current") == 0)
         {
+            EXTENDED_NAME_FORMAT eNameDisplay = NameFullyQualifiedDN;
+            const DWORD Len = 1024;
+            TCHAR szUsername[Len + 1];
+            DWORD dwLen = Len;
+            if (GetUserNameEx(eNameDisplay, szUsername, &dwLen))
+            {
+                _stprintf("%s", szUsername);
+            }
+            /*
             HANDLE currentToken;
             OpenProcessToken(GetCurrentProcess(), TOKEN_READ, &currentToken);
             Token* t = new Token;
             t->tokenHandle = currentToken;
             get_token_information(t);
-            printf("%ws\n", t->tokenUsername);
+            printf("%ws\n", t->tokenUsername);*/
         }
         else if (strcmp(command_buf, "token.list") == 0)
         {
