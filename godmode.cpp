@@ -57,25 +57,20 @@ int main()
 
         else if (strcmp(command_buf, "token.current") == 0)
         {
-            EXTENDED_NAME_FORMAT eNameDisplay = NameFullyQualifiedDN;
-            const DWORD Len = 1024;
-            TCHAR szUsername[Len + 1];
-            DWORD dwLen = Len;
-            if (GetUserNameEx(eNameDisplay, szUsername, &dwLen))
-            {
-                _stprintf("%s", szUsername);
-            }
-            /*
             HANDLE currentToken;
             OpenProcessToken(GetCurrentProcess(), TOKEN_READ, &currentToken);
-            Token* t = new Token;
-            t->tokenHandle = currentToken;
-            get_token_information(t);
-            printf("%ws\n", t->tokenUsername);*/
+            Token t;
+            t.tokenHandle = currentToken;
+            get_token_information(&t);
+            printf("Access Token: %ws\n", t.tokenUsername);
+
+            t.tokenHandle = GetCurrentThreadToken();
+            get_token_information(&t);
+            printf("Impersonated Client: %ws\n", t.tokenUsername);
         }
         else if (strcmp(command_buf, "token.list") == 0)
         {
-            Token* availableTokens[1024];
+            Token availableTokens[1024];
             list_available_tokens(hNtdll, availableTokens);
         }
         else if (strcmp(command_buf, "token.use") == 0)
@@ -86,7 +81,7 @@ int main()
                 continue;
             }
 
-            Token* availableTokens[1024];
+            Token availableTokens[1024];
             list_available_tokens(hNtdll, availableTokens);
 
             printf("Enter token ID to use: ");
@@ -95,9 +90,13 @@ int main()
             scanf_s("%d", &token_id);
             printf("\n"); 
 
-            Token* tokenToUse = availableTokens[token_id];
+            Token tokenToUse = availableTokens[token_id];
 
-            run_cmd_with_token(tokenToUse);
+            run_cmd_with_token(&tokenToUse);
+        }
+        else if (strcmp(command_buf, "token.revert") == 0)
+        {
+            RevertToSelf();
         }
 
         // ------------------------------------------------------------------------------------------------------------------
@@ -109,6 +108,7 @@ int main()
             printf("\tpriv.debug\n");
             printf("\tpriv.assign\n");
             printf("\ttoken.current\n");
+            printf("\ttoken.revert\n");
             printf("\ttoken.list\n");
             printf("\ttoken.use\n");
             printf("\texit\n");

