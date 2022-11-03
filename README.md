@@ -1,9 +1,19 @@
 # godmode
 
-The Benjamin Delpy way of learning C(++) aka WIP tool to play with windows security stuff.
+WIP tool for playing with windows token manipulation.
 
-### TODO
-* Token Module
-  - List process tokens :heavy_check_mark: 
-  - Spawn process with token :heavy_check_mark:
-  - Set thread context to token
+```bash
+priv module:
+        priv.debug - enable debug priv
+        priv.assign - enable assignprimarytoken priv
+
+token module:
+        token.current - show current security tokens
+        token.revert - revert to self
+        token.list - list available tokens for all system processes
+        token.cmd - run cmd.exe with a token from token.list
+        token.run - run any process with a token from token.list
+        token.impersonate - impersonate a token from token.list
+
+        exit
+```

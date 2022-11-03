@@ -39,13 +39,21 @@ BOOL set_privilege(HANDLE token_handle, LPCTSTR privilege_name, BOOL should_enab
     return TRUE;
 }
 
-BOOL enable_privilege(LPCTSTR privilege_name)
+BOOL enable_privilege(BOOL is_impersonating, LPCTSTR privilege_name)
 {
-    HANDLE current_process_token;
-    OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &current_process_token);
+    HANDLE token;
+
+    if (is_impersonating)
+    {
+        OpenThreadToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, TRUE, &token);
+    }
+    else
+    {
+        OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token);
+    }
 
     printf("[*] Enabling %ws...\n", privilege_name);
-    if (set_privilege(current_process_token, privilege_name, TRUE))
+    if (set_privilege(token, privilege_name, TRUE))
     {
         printf("[*] SUCCESS\n", privilege_name);
         return TRUE;
