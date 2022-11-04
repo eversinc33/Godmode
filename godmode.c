@@ -3,10 +3,10 @@
 #include <minwindef.h>
 #include <winternl.h>
 
+#include "syscalls.h"
 #include "unhook.h"
 #include "systeminfo.h"
 #include "token.h"
-#include "syscalls.h"
 #include "privileges.h"
 
 typedef unsigned long DWORD;
@@ -16,18 +16,21 @@ typedef unsigned long DWORD;
 
 int main()
 {
-    int should_exit = FALSE;
+    BOOL should_exit = FALSE;
+    BOOL is_impersonating = FALSE;
 
     printf("[*] Unhooking ntdll...\n");
     unhookNtdll();
-    HMODULE hNtdll = GetModuleHandle(L"ntdll.dll");
 
-    if (!print_version(hNtdll))
+    printf("[*] Resolving syscalls...\n");
+    HMODULE hNtdll = GetModuleHandle(L"ntdll.dll");
+    if (!get_syscalls(hNtdll))
     {
         return 1;
     }
 
-    BOOL is_impersonating = FALSE;
+    print_version();
+
 
     while (!should_exit)
     {
@@ -75,7 +78,7 @@ int main()
         else if (strcmp(command_buf, "token.list") == 0)
         {
             Token availableTokens[1024];
-            list_available_tokens(hNtdll, availableTokens);
+            list_available_tokens(availableTokens);
         }
         else if ((strcmp(command_buf, "token.cmd") == 0) || (strcmp(command_buf, "token.run") == 0))
         {
@@ -86,7 +89,7 @@ int main()
             }
 
             Token availableTokens[1024];
-            list_available_tokens(hNtdll, availableTokens);
+            list_available_tokens(availableTokens);
 
             printf("Enter token ID to use: ");
             int token_id;
@@ -116,7 +119,7 @@ int main()
             }
 
             Token availableTokens[1024];
-            list_available_tokens(hNtdll, availableTokens);
+            list_available_tokens(availableTokens);
 
             printf("Enter token ID to use: ");
             int token_id;

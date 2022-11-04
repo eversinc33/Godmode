@@ -126,30 +126,17 @@ void run_cmd(Token* tokenToUse, const wchar_t* cmdToRun)
     CloseHandle(pNewToken);
 }
 
-LPWSTR get_object_info(HMODULE hNtdll, HANDLE hObject, OBJECT_INFORMATION_CLASS objInfoClass)
+LPWSTR get_object_info(HANDLE hObject, OBJECT_INFORMATION_CLASS objInfoClass)
 {
-    NtQuerySystemInformation_t NtQuerySystemInformation = (NtQuerySystemInformation_t)GetProcAddress(hNtdll, "NtQuerySystemInformation");
-    if (!NtQuerySystemInformation)
-    {
-        printf("[!] Error resolving NtQuerySystemInformation syscall");
-        return 0;
-    }
-    NtQueryObject_t NtQueryObject = (NtQueryObject_t)GetProcAddress(hNtdll, "NtQueryObject");
-    if (!NtQuerySystemInformation)
-    {
-        printf("[!] Error resolving NtQueryObject syscall");
-        return 0;
-    }
-
     LPWSTR data = NULL;
     DWORD dwSize = sizeof(OBJECT_NAME_INFORMATION);
     POBJECT_NAME_INFORMATION pObjectInfo = (POBJECT_NAME_INFORMATION)malloc(dwSize);
 
-    NTSTATUS ntReturn = NtQueryObject(hObject, objInfoClass, pObjectInfo, dwSize, &dwSize);
+    NTSTATUS ntReturn = sNtQueryObject(hObject, objInfoClass, pObjectInfo, dwSize, &dwSize);
     if ((ntReturn == STATUS_BUFFER_OVERFLOW) || (ntReturn == STATUS_INFO_LENGTH_MISMATCH)) 
     {
         pObjectInfo = (POBJECT_NAME_INFORMATION)realloc(pObjectInfo, dwSize);
-        ntReturn = NtQueryObject(hObject, objInfoClass, pObjectInfo, dwSize, &dwSize);
+        ntReturn = sNtQueryObject(hObject, objInfoClass, pObjectInfo, dwSize, &dwSize);
     }
     if ((ntReturn >= STATUS_SUCCESS) && (pObjectInfo->Buffer != NULL)) 
     {
@@ -205,23 +192,16 @@ void get_token_information(Token* token)
     }
 }
 
-void list_available_tokens(HMODULE hNtdll, Token* foundTokens)
+void list_available_tokens(Token* foundTokens)
 {
     int nFoundTokens = 0;
-    NtQuerySystemInformation_t NtQuerySystemInformation = (NtQuerySystemInformation_t)GetProcAddress(hNtdll, "NtQuerySystemInformation");
-
-    if (!NtQuerySystemInformation)
-    {
-        printf("[!] Error resolving NtQuerySystemInformation syscall");
-    }
-
     ULONG systemHandleInformationClass = 0x10; // https://www.geoffchappell.com/studies/windows/km/ntoskrnl/api/ex/sysinfo/handle.htm
     ULONG systemHandleInformationSize = 1024 * 1024 * 10;
     ULONG returnLength = 0;
     SYSTEM_HANDLE_INFORMATION* handleTableInformation = (SYSTEM_HANDLE_INFORMATION*)HeapAlloc(GetProcessHeap(), 0, systemHandleInformationSize);
 
     // Get all handles available & iterate over handles
-    NtQuerySystemInformation(systemHandleInformationClass, handleTableInformation, systemHandleInformationSize, &returnLength);
+    sNtQuerySystemInformation(systemHandleInformationClass, handleTableInformation, systemHandleInformationSize, &returnLength);
     HANDLE processSnapshotHandle = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     for (DWORD i = 0; i < handleTableInformation->NumberOfHandles; i++)
     {
@@ -242,7 +222,7 @@ void list_available_tokens(HMODULE hNtdll, Token* foundTokens)
         }
 
         // Check if handle is a Token
-        LPWSTR objType = get_object_info(hNtdll, dupHandle, ObjectTypeInformation);
+        LPWSTR objType = get_object_info(dupHandle, ObjectTypeInformation);
         if (wcscmp(objType, L"Token")) {
             CloseHandle(process);
             CloseHandle(dupHandle);
