@@ -14,6 +14,7 @@ token module:
         token.cmd - run cmd.exe with a token from token.list
         token.run - run any process with a token from token.list
         token.impersonate - impersonate a token from token.list
+        token.logon - logon a user with a password
 
         exit
 ```

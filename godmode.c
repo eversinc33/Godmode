@@ -93,16 +93,18 @@ int main()
             scanf_s("%d", &token_id);
             printf("\n"); 
 
+            Token tokenToUse = availableTokens[token_id];
+
             if (strcmp(command_buf, "token.cmd") == 0)
             {
-                run_cmd(&availableTokens[token_id], L"C:\\Windows\\system32\\cmd.exe");
+                run_cmd(&tokenToUse, L"C:\\Windows\\system32\\cmd.exe");
             }
             else // token.run
             {
                 printf("Enter command to run: ");
                 wchar_t cmd_to_run[MAX_PATH];
                 scanf_s("%ws", cmd_to_run, MAX_PATH);
-                run_cmd(&availableTokens[token_id], cmd_to_run);
+                run_cmd(&tokenToUse, cmd_to_run);
             }
         }
         else if (strcmp(command_buf, "token.impersonate") == 0)
@@ -128,6 +130,49 @@ int main()
             RevertToSelf();
             is_impersonating = FALSE;
         }
+        else if (strcmp(command_buf, "token.logon") == 0)
+        {
+            HANDLE newLogonToken;
+            wchar_t lpszUsername[MAX_PATH], lpszDomain[MAX_PATH], lpszPassword[MAX_PATH];
+
+            printf("Enter domain: ");
+            scanf_s("%ws", lpszDomain, MAX_PATH);
+            printf("Enter username: ");
+            scanf_s("%ws", lpszUsername, MAX_PATH);
+            printf("Enter password: ");
+            scanf_s("%ws", lpszPassword, MAX_PATH);
+
+            if (!LogonUserW(lpszUsername, lpszDomain, lpszPassword, LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT, &newLogonToken))
+            {
+                printf("[!] LogonUserW failed: %i", GetLastError());
+            }
+            else
+            {
+                printf("[*] User logged on. Creating cmd.exe process as user in background...");
+                STARTUPINFO si;
+                PROCESS_INFORMATION pi;
+
+                if (!enable_privilege(is_impersonating, SE_INCREASE_QUOTA_NAME))
+                {
+                    printf("[!] SeIncreaseQuota is needed for token impersonation");
+                    continue;
+                }
+
+                if (!enable_privilege(is_impersonating, SE_ASSIGNPRIMARYTOKEN_NAME))
+                {
+                    printf("[!] SeAssignPrimaryToken is needed for token impersonation");
+                    continue;
+                }
+
+                if (!CreateProcessAsUserW(newLogonToken, L"C:\\Windows\\system32\\cmd.exe", NULL, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi))
+                {
+                    printf("[!] ERROR: Could not create process with token: %d\n", GetLastError());
+                    continue;
+                }
+
+                printf("[*] User logged on. See token.list\n");
+            }
+        }
 
         // ------------------------------------------------------------------------------------------------------------------
 
@@ -142,7 +187,8 @@ int main()
             printf("\ttoken.list - list available tokens for all system processes\n");
             printf("\ttoken.cmd - run cmd.exe with a token from token.list\n");
             printf("\ttoken.run - run any process with a token from token.list\n");
-            printf("\ttoken.impersonate - impersonate a token from token.list\n\n");
+            printf("\ttoken.impersonate - impersonate a token from token.list\n");
+            printf("\ttoken.logon - logon a user with a password\n\n");
             printf("\texit - exit godmode\n");
         }
     }
