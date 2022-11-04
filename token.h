@@ -7,9 +7,9 @@
 #include <OleDlg.h>
 #include <securitybaseapi.h>
 #include <tlhelp32.h>
+#include <stdio.h>
 
 #include "syscalls.h"
-#include <exception>
 
 // -----------------------------------------------------------------------------------------------------------------
 // Some of this code is from https://github.com/sensepost/impersonate
@@ -116,8 +116,8 @@ void run_cmd(Token* tokenToUse, const wchar_t* cmdToRun)
         return;
     }
 
-    STARTUPINFO si = {};
-    PROCESS_INFORMATION pi = {};
+    STARTUPINFO si;
+    PROCESS_INFORMATION pi;
     if (!CreateProcessWithTokenW(pNewToken, LOGON_NETCREDENTIALS_ONLY, cmdToRun, NULL, CREATE_NEW_CONSOLE, NULL, NULL, &si, &pi))
     {
         printf("[!] ERROR: Could not create process with token: %d\n", GetLastError());
@@ -183,7 +183,7 @@ void get_token_information(Token* token)
 
     // User Info
     wchar_t username[256], domain[256];
-    wchar_t* full_name = new wchar_t[256]; // TODO: memory leak - clean up when token is destroyed
+    wchar_t full_name[256]; 
 
     DWORD user_length = sizeof(username);
     DWORD domain_length = sizeof(domain);
@@ -225,7 +225,7 @@ void list_available_tokens(HMODULE hNtdll, Token* foundTokens)
     HANDLE processSnapshotHandle = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     for (DWORD i = 0; i < handleTableInformation->NumberOfHandles; i++)
     {
-        SYSTEM_HANDLE_TABLE_ENTRY_INFO handleInfo = (SYSTEM_HANDLE_TABLE_ENTRY_INFO)handleTableInformation->Handles[i];
+        SYSTEM_HANDLE_TABLE_ENTRY_INFO handleInfo = handleTableInformation->Handles[i];
 
         HANDLE process = OpenProcess(PROCESS_DUP_HANDLE, FALSE, handleInfo.ProcessId);
         if (process == INVALID_HANDLE_VALUE)
@@ -246,10 +246,10 @@ void list_available_tokens(HMODULE hNtdll, Token* foundTokens)
         if (wcscmp(objType, L"Token")) {
             CloseHandle(process);
             CloseHandle(dupHandle);
-            delete[] objType;
+            free(objType);
             continue;
         }
-        delete[] objType;
+        free(objType);
 
         Token currToken;
         currToken.tokenHandle = dupHandle;

@@ -127,7 +127,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="godmode.cpp" />
+    <ClCompile Include="godmode.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="privileges.h" />

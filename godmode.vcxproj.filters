@@ -15,7 +15,7 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="godmode.cpp">
+    <ClCompile Include="godmode.c">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

@@ -6,7 +6,7 @@ void unhookNtdll()
 {
 	// Get Handle to NTDLL in process
 	HANDLE process = GetCurrentProcess();
-	MODULEINFO mi = {};
+	MODULEINFO mi;
 	HMODULE ntdllModule = GetModuleHandleA("ntdll.dll");
 
 	// Get pointer to ntdllBase address
