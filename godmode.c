@@ -133,6 +133,15 @@ int main()
             RevertToSelf();
             is_impersonating = FALSE;
         }
+        else if (strcmp(command_buf, "token.pipe") == 0)
+        {
+            if (!enable_privilege(is_impersonating, SE_IMPERSONATE_NAME))
+            {
+                printf("[!] SeImpersonate is needed for token impersonation");
+                continue;
+            }
+            setup_pipe_and_impersonate();
+        }
         else if (strcmp(command_buf, "token.logon") == 0)
         {
             HANDLE newLogonToken;
@@ -191,7 +200,8 @@ int main()
             printf("\ttoken.cmd - run cmd.exe with a token from token.list\n");
             printf("\ttoken.run - run any process with a token from token.list\n");
             printf("\ttoken.impersonate - impersonate a token from token.list\n");
-            printf("\ttoken.logon - logon a user with a password\n\n");
+            printf("\ttoken.pipe - create a named pipe and run cmd.exe, impersonating the first client that connects to it\n");
+            printf("\ttoken.logon - logon a user with a password and run cmd.exe if assignprimraytoken priv is enabled\n\n");
             printf("\texit - exit godmode\n");
         }
     }
