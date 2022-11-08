@@ -14,13 +14,19 @@
 
 #define BUFFER_SIZE 0x10
 
-// -----------------------------------------------------------------------------------------------------------------
-// CREDIT: Some of this code is from https://github.com/sensepost/impersonate
-// ------------------------------------------------------------------------------------------------------------------
-
 #define STATUS_SUCCESS               ((NTSTATUS)0x00000000L)
 #define STATUS_INFO_LENGTH_MISMATCH  ((NTSTATUS)0xC0000004L)
 #define STATUS_BUFFER_OVERFLOW       ((NTSTATUS)0x80000005L)
+
+typedef struct _PROCESS_ACCESS_TOKEN
+{
+    HANDLE Token;
+    HANDLE Thread;
+} PROCESS_ACCESS_TOKEN, *PPROCESS_ACCESS_TOKEN;
+
+// -----------------------------------------------------------------------------------------------------------------
+// CREDIT: Some of this file's code is from https://github.com/sensepost/impersonate
+// ------------------------------------------------------------------------------------------------------------------
 
 typedef struct _SYSTEM_HANDLE_TABLE_ENTRY_INFO {
     USHORT ProcessId;

