@@ -2,6 +2,8 @@
 
 Small tool for playing with windows token manipulation.
 
+Blog post available at https://eversinc33.github.io/posts/windows-access-tokens/
+
 ```bash
 priv module:
         priv.debug - enable debug priv
